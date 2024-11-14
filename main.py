@@ -1,4 +1,4 @@
-# made by kay1337
+# made by kay1337 - discord: kayra1337new
 
 import sys
 import pefile
@@ -16,6 +16,10 @@ import os
 import struct
 import binascii
 import json
+import networkx as nx
+import matplotlib.pyplot as plt
+import re
+import subprocess
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -264,6 +268,121 @@ class IntermediateRepresentation:
             'operands': instr.operands
         } for instr in self.instructions], indent=4)
 
+class ControlFlowGraph:
+    def __init__(self):
+        self.graph = nx.DiGraph()
+
+    def build_cfg(self, instructions):
+        current_block = []
+        for instr in instructions:
+            current_block.append(instr)
+            if instr['mnemonic'] in {'jmp', 'je', 'jne', 'jg', 'jge', 'jl', 'jle', 'call', 'ret'}:
+                self.graph.add_node(instr['address'], instructions=current_block.copy())
+                if instr['mnemonic'] != 'ret':
+                    try:
+                        target = int(instr['op_str'], 16)
+                        self.graph.add_edge(instr['address'], target)
+                    except ValueError:
+                        pass
+                current_block.clear()
+        if current_block:
+            last_addr = current_block[-1]['address']
+            self.graph.add_node(last_addr, instructions=current_block.copy())
+
+    def visualize_cfg(self, output_file='cfg.png'):
+        pos = nx.spring_layout(self.graph)
+        plt.figure(figsize=(12, 8))
+        nx.draw(self.graph, pos, with_labels=True, node_size=1500, node_color='lightblue', arrows=True)
+        plt.savefig(output_file)
+        plt.close()
+        logging.info(f"CFG visualized and saved to {output_file}")
+
+class DataFlowAnalyzer:
+    def __init__(self):
+        self.definitions = {}
+        self.uses = {}
+
+    def analyze(self, instructions):
+        for instr in instructions:
+            addr = instr['address']
+            mnemonic = instr['mnemonic']
+            ops = instr['op_str'].split(', ')
+            if mnemonic.startswith('mov'):
+                if len(ops) >= 2:
+                    dest, src = ops[:2]
+                    self.definitions[dest] = addr
+                    if src not in self.definitions:
+                        self.uses.setdefault(src, []).append(addr)
+            # Daha fazla analiz eklenebilir
+
+    def get_definitions(self):
+        return self.definitions
+
+    def get_uses(self):
+        return self.uses
+
+class StringExtractor:
+    def __init__(self):
+        self.strings = []
+
+    def extract_strings(self, data, min_length=4):
+        pattern = re.compile(rb'[\x20-\x7E]{%d,}' % min_length)
+        self.strings = [s.decode('utf-8') for s in pattern.findall(data)]
+        return self.strings
+
+class FunctionIdentifier:
+    def __init__(self, disassembler):
+        self.disassembler = disassembler
+        self.functions = []
+
+    def identify_functions(self, instructions):
+        for instr in instructions:
+            if instr['mnemonic'] == 'call':
+                try:
+                    target = int(instr['op_str'], 16)
+                    self.functions.append(target)
+                except ValueError:
+                    pass
+        return self.functions
+
+class PatternMatcher:
+    def __init__(self, pattern):
+        self.pattern = pattern.encode()
+
+    def match(self, data):
+        return [m.start() for m in re.finditer(re.escape(self.pattern), data)]
+
+class Visualization:
+    def __init__(self):
+        pass
+
+    def plot_graph(self, graph, output_file='graph.png'):
+        pos = nx.spring_layout(graph)
+        plt.figure(figsize=(12, 8))
+        nx.draw(graph, pos, with_labels=True, node_size=1500, node_color='lightgreen', arrows=True)
+        plt.savefig(output_file)
+        plt.close()
+        logging.info(f"Graph visualized and saved to {output_file}")
+
+class Reporting:
+    def __init__(self):
+        pass
+
+    def generate_report(self, analysis_data, output_file='report.json'):
+        Utils.save_json(analysis_data, output_file)
+        logging.info(f"Report generated and saved to {output_file}")
+
+class Decompiler:
+    def __init__(self, tool_path='ghidra'):
+        self.tool_path = tool_path
+
+    def decompile(self, binary_path, output_path='decompiled_output.c'):
+        try:
+            subprocess.run([self.tool_path, '--decompile', binary_path, '--output', output_path], check=True)
+            logging.info(f"Decompilation completed. Output saved to {output_path}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Decompilation failed: {e}")
+
 class Emulator:
     def __init__(self, arch='x86', mode=32):
         if arch == 'x86':
@@ -402,6 +521,105 @@ class SymbolicExecutor:
                     self.add_constraint(self.symbolic_vars[dest] == self.symbolic_vars[dest] ^ self.symbolic_vars[src])
                     logging.debug(f"Symbolic constraint added for XOR: {dest} = {dest} ^ {src}")
 
+class Decompiler:
+    def __init__(self, tool_path='ghidra'):
+        self.tool_path = tool_path
+
+    def decompile(self, binary_path, output_path='decompiled_output.c'):
+        try:
+            subprocess.run([self.tool_path, '--decompile', binary_path, '--output', output_path], check=True)
+            logging.info(f"Decompilation completed. Output saved to {output_path}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Decompilation failed: {e}")
+
+class Emulator:
+    def __init__(self, arch='x86', mode=32):
+        if arch == 'x86':
+            if mode == 32:
+                self.uc = Uc(UC_ARCH_X86, UC_MODE_32)
+                self.reg_eip = UC_X86_REG_EIP
+            elif mode == 64:
+                self.uc = Uc(UC_ARCH_X86, UC_MODE_64)
+                self.reg_eip = UC_X86_REG_RIP
+            else:
+                raise ValueError("Unsupported mode for x86")
+        elif arch == 'arm':
+            self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM)
+            self.reg_eip = UC_ARM_REG_PC
+        elif arch == 'mips':
+            self.uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 + UC_MODE_BIG_ENDIAN)
+            self.reg_eip = UC_MIPS_REG_PC
+        else:
+            raise ValueError("Unsupported architecture")
+        self.memory = {}
+        self.hooks = []
+        self._setup_default_hooks()
+
+    def _setup_default_hooks(self):
+        self.uc.hook_add(UC_HOOK_MEM_WRITE, self.hook_mem_write)
+        self.uc.hook_add(UC_HOOK_MEM_READ, self.hook_mem_read)
+        self.uc.hook_add(UC_HOOK_CODE, self.hook_code)
+
+    def hook_mem_write(self, uc, access, address, size, value, user_data):
+        logging.info(f"Memory Write: 0x{address:X} -> {value:#x}")
+
+    def hook_mem_read(self, uc, access, address, size, value, user_data):
+        logging.info(f"Memory Read: 0x{address:X} <- {value:#x}")
+
+    def hook_code(self, uc, address, size, user_data):
+        logging.info(f"Executing Instruction at 0x{address:X}, Size: {size}")
+
+    def map_memory(self, address, size=2*1024*1024, permissions=UC_PROT_ALL):
+        try:
+            self.uc.mem_map(address, size, permissions)
+            logging.info(f"Memory mapped at 0x{address:X} with size {size} bytes.")
+        except UcError as e:
+            logging.error(f"Memory mapping error: {e}")
+
+    def write_memory(self, address, data):
+        try:
+            self.uc.mem_write(address, data)
+            logging.info(f"Written {len(data)} bytes to 0x{address:X}.")
+        except UcError as e:
+            logging.error(f"Memory write error: {e}")
+
+    def set_register(self, reg, value):
+        try:
+            self.uc.reg_write(reg, value)
+            logging.info(f"Register {reg} set to {value:#x}.")
+        except UcError as e:
+            logging.error(f"Register write error: {e}")
+
+    def get_register(self, reg):
+        try:
+            value = self.uc.reg_read(reg)
+            logging.info(f"Register {reg} read as {value:#x}.")
+            return value
+        except UcError as e:
+            logging.error(f"Register read error: {e}")
+            return None
+
+    def emulate(self, start_addr, end_addr):
+        try:
+            self.uc.emu_start(start_addr, end_addr)
+            logging.info("Emulation started.")
+        except UcError as e:
+            logging.error(f"Emulation error: {e}")
+
+    def add_custom_hook(self, address, callback):
+        try:
+            self.uc.hook_add(UC_HOOK_CODE, callback, begin=address, end=address + 1)
+            logging.info(f"Custom hook added at 0x{address:X}.")
+        except UcError as e:
+            logging.error(f"Custom hook error: {e}")
+
+    def remove_hook(self, hook_id):
+        try:
+            self.uc.hook_del(hook_id)
+            logging.info(f"Hook {hook_id} removed.")
+        except UcError as e:
+            logging.error(f"Hook removal error: {e}")
+
 class ReverseEngineeringFramework:
     def __init__(self, file_path, arch='x86', mode=32):
         self.file_parser = FileParser(file_path)
@@ -410,6 +628,14 @@ class ReverseEngineeringFramework:
         self.ir = IntermediateRepresentation()
         self.emulator = Emulator(arch=arch, mode=mode)
         self.symbolic_executor = SymbolicExecutor()
+        self.cfg = ControlFlowGraph()
+        self.dfa = DataFlowAnalyzer()
+        self.string_extractor = StringExtractor()
+        self.function_identifier = FunctionIdentifier(self.disassembler)
+        self.pattern_matcher = PatternMatcher('password')  # Example pattern
+        self.visualization = Visualization()
+        self.reporting = Reporting()
+        self.decompiler = Decompiler()
         self.arch = arch
         self.mode = mode
 
@@ -466,6 +692,38 @@ class ReverseEngineeringFramework:
         hexdump = Utils.hexdump(data, addr)
         print(hexdump)
 
+    def build_cfg(self, instructions):
+        self.cfg.build_cfg(instructions)
+        self.cfg.visualize_cfg()
+
+    def analyze_data_flow(self, instructions):
+        self.dfa.analyze(instructions)
+        definitions = self.dfa.get_definitions()
+        uses = self.dfa.get_uses()
+        analysis_data = {'definitions': definitions, 'uses': uses}
+        Utils.save_json(analysis_data, 'data_flow_analysis.json')
+
+    def extract_strings(self, data):
+        strings = self.string_extractor.extract_strings(data)
+        Utils.save_json(strings, 'extracted_strings.json')
+
+    def identify_functions(self, instructions):
+        functions = self.function_identifier.identify_functions(instructions)
+        Utils.save_json(functions, 'identified_functions.json')
+
+    def match_patterns(self, data):
+        matches = self.pattern_matcher.match(data)
+        Utils.save_json(matches, 'pattern_matches.json')
+
+    def visualize_graph(self, graph, output_file='graph.png'):
+        self.visualization.plot_graph(graph, output_file)
+
+    def generate_report(self, analysis_data):
+        self.reporting.generate_report(analysis_data, 'report.json')
+
+    def decompile_binary(self, output_path='decompiled_output.c'):
+        self.decompiler.decompile(self.file_parser.file_path, output_path)
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Comprehensive Reverse Engineering Framework')
     parser.add_argument('file', help='Path to the binary file to analyze')
@@ -476,6 +734,12 @@ def parse_arguments():
     parser.add_argument('--emulate', action='store_true', help='Emulate code')
     parser.add_argument('--symbolic', action='store_true', help='Perform symbolic execution')
     parser.add_argument('--hexdump', action='store_true', help='Show hexdump')
+    parser.add_argument('--cfg', action='store_true', help='Build and visualize Control Flow Graph')
+    parser.add_argument('--dfa', action='store_true', help='Perform Data Flow Analysis')
+    parser.add_argument('--strings', action='store_true', help='Extract strings from binary')
+    parser.add_argument('--functions', action='store_true', help='Identify functions in binary')
+    parser.add_argument('--patterns', action='store_true', help='Match specific patterns in binary')
+    parser.add_argument('--decompile', action='store_true', help='Decompile binary using Ghidra')
     return parser.parse_args()
 
 def main():
@@ -490,10 +754,31 @@ def main():
 
     framework.analyze_file()
 
-    if args.disasm:
-        with open(args.file, 'rb') as f:
-            sample_code = f.read(100)
-        disassembled = framework.disassemble_code(sample_code, addr=0x400000)
+    with open(args.file, 'rb') as f:
+        binary_data = f.read()
+
+    if args.disasm or args.cfg or args.dfa or args.functions or args.patterns:
+        parse_result = framework.file_parser.parse()
+        if parse_result and framework.file_parser.file_type == 'PE':
+            sample_code = framework.file_parser.read_file_chunk(args.file, size=100, offset=parse_result['sections'][0]['PointerToRawData'])
+        elif parse_result and framework.file_parser.file_type == 'ELF':
+            sample_code = framework.file_parser.read_file_chunk(args.file, size=100, offset=parse_result['sections'][0]['PointerToRawData'])
+        else:
+            sample_code = binary_data[:100]
+        instructions = framework.disassemble_code(sample_code, addr=0x400000)
+
+        if args.cfg:
+            framework.build_cfg(instructions)
+
+        if args.dfa:
+            framework.analyze_data_flow(instructions)
+
+        if args.functions:
+            framework.identify_functions(instructions)
+
+        if args.patterns:
+            framework.match_patterns(binary_data)
+
         framework.generate_ir_json()
 
     if args.asm:
@@ -503,17 +788,26 @@ def main():
             disassembled = framework.disassemble_code(machine_code, addr=0x500000)
 
     if args.emulate:
-        with open(args.file, 'rb') as f:
-            code = f.read(100)
+        if framework.file_parser.file_type == 'PE':
+            code = framework.file_parser.read_file_chunk(args.file, size=100, offset=framework.file_parser.parse()['sections'][0]['PointerToRawData'])
+        elif framework.file_parser.file_type == 'ELF':
+            code = framework.file_parser.read_file_chunk(args.file, size=100, offset=framework.file_parser.parse()['sections'][0]['PointerToRawData'])
+        else:
+            code = binary_data[:100]
         framework.emulate_code(code, address=0x400000)
 
     if args.symbolic:
         framework.perform_symbolic_execution()
 
     if args.hexdump:
-        with open(args.file, 'rb') as f:
-            data = f.read(256)
+        data = framework.file_parser.read_file_chunk(args.file, size=256)
         framework.display_hexdump(data, addr=0x0)
+
+    if args.strings:
+        framework.extract_strings(binary_data)
+
+    if args.decompile:
+        framework.decompile_binary()
 
 if __name__ == "__main__":
     main()
